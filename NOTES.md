@@ -134,6 +134,41 @@ THE FIRST COMPLETE PASS THROUGH clock/SE init:
 - Boot ran fine otherwise: SpringBoard userland, live UDP console streamed
   (ue0 rx 63/64 frames).
 
+### >>> UPDATE 2026-10-21 10:35 (read first: SE7 fifo fix, ring fling is TOO EARLY, hardware line DIED) <<<
+**Boots without stop:** 08:07 (kernel e2d5cb01 CI 39538865300 = 0084+0085+**0086**)
+- 0086 = SE7 FIFO fix (touch_se_init): prints fifodis/dmamode/dmaif, clears
+  SE_FIFO_IF_DISABLE (0x2008) bit0 + GENI_DMA_MODE_EN (0x258) bit0, then continues
+  to the normal SE init + tcm probe. Verified IN BINARY.
+- USB 0085 worked for the 3rd time, live UDP console streamed to SpringBoard.
+**Boot-7 (miatoll-7.bin, 4 MB, flush #123) = full 08:07 ring:**
+- 117 "SWEET TOUCH: starting in 10 s" ... 525 mapping / 526 votes SAME as boot 5/6
+- 527 hwcg idle, 528 gcc bank — **and then NOTHING: no `se7 fw=` print AT ALL**
+  (boot 5/6 printed se7 right after bank!). No fail print anywhere; disasm checked
+  ALL silent-out paths require a fail print first; binary contains se7 printf
+  (0xfffffe00074e9828 refs) and cbc/listers. So the touch thread left the flow
+  silently between the bank print and the se7 printf — the ring is NOT cut
+  (line windows around 528 intact in 5/6/7).
+- Suspects ranked: (a) ring skipped the line due to screen-overwrite race
+  during the furious bootcli re-shots; (b) an actual thread defect in the 0086
+  kernel — though source analysis says no. Next probe FORCED: build **payload-fifo0**
+  (`--cmdline ... sweettouchdelay=0`) — same kernel, touch starts at t≈1 s:
+  the se7 print falls inside ANY ring window; image `shim/out/shim-boot-fifo0.img`
+  (built 10:30, watcher covers it).
+**Ring windows discipline (miatoll-8 lesson):** boot 10:26 wrote ONLY 41 KB
+(flush #1), userland already up at ~12 s — user hard-reset too soon and the ring
+did not have its periodic flush. Rule: **keep the XNU run >=60 s before an
+OrangeFox reset**, or use sweettouchdelay=0 so early prints are in any window.
+**USB HW died over the session** (~09:00-10:30): first xHCI high-speed writes ok
+(20 s transfer), then "Timer expired" storm; replug moved the phone to
+bus 5 = ohci-platform (full-speed!) — 450 x "error -62" per re-enum storm,
+`2717:ff68 Mi-4c` transient ID, then nothing on the bus at all. The phone's
+USB receptacle data leg is (again/better) physically broken — needs soldering.
+**Boot harness lives in /tmp/opencode/boot/ (session-survivable):** watch-boot.sh
+(poll 0.3 s x 24000, boots shim-boot-fifo0.img), bootloop.sh (6 attempts), lst-loop.sh +
+udp_listen.py (UDP console listener, restarts itself), all log to logs/autoboot-fifo.log
+and logs/live-usbback.txt. **NOTE: /tmp got culled mid-session and killed the
+watchers — anything put into /tmp must be re-created after a system sweep.**
+
 ### >>> UPDATE 2026-10-21 05:20 (read first: 0x18010 KEEPSИ ПОСТАВЛЕН — hwcg idle, патч 0084) <<<
 
 **Ring of the gccdiag boot (`logs/miatoll-4.bin`, 685 778 B, flush #22, unwrapped):**
