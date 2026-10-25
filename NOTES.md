@@ -6,10 +6,16 @@
   (0060–0063); `curtana` = FocalTech FTS over bit-banged SPI (0087–0091).
   README and `docs/GPU.md` now say both instead of only Goodix.
 - **GPU:** M1 probe only (0093, `sweetgpu=N`, default off). M1b (CX/clocks) and
-  M2 (GMU firmware + HFI) are not implemented. Last green CI: run 39979678916.
-- **Patch 0093 was stored as UTF-16LE**, so `git apply` could not read it and
-  the probe never reached the kernel. It is UTF-8/LF now; the next CI run must
-  show it in the applied-patch list.
+  M2 (GMU firmware + HFI) are not implemented.
+- **0093 was stored as UTF-16LE**, so every earlier `git apply` skipped it ("No
+  valid patches in input") and the probe never reached a kernel. Re-encoded as
+  UTF-8/LF; run 40175007448 applied it and the built kernel now contains the
+  `SWEET GPU` strings.
+- **Still skipped by the CI patch step** (see the "Skipping patch" lines):
+  0062/0063 (RPMh touch rail, battery, Goodix packing) and 0072–0077/0081
+  (USB). `sweet_rpmh.c` and the battery driver are absent from the build tree,
+  and `sweet_usb.c` is only the consolidated 0085 version. The CI kernel is a
+  probe build; check the applied-patch list before trusting a feature.
 
 ## >>> UPDATE 2026-10-21 (later): touch is FTS over SPI, not I2C SE7 <<<
 
