@@ -5,8 +5,7 @@
 - **Touch:** two paths in one tree. `sweet` = Goodix GT9896 over I²C SE7
   (0060–0063); `curtana` = FocalTech FTS over bit-banged SPI (0087–0091).
   README and `docs/GPU.md` now say both instead of only Goodix.
-- **GPU:** M1 probe only (0093, `sweetgpu=N`, default off). M1b (CX/clocks) and
-  M2 (GMU firmware + HFI) are not implemented.
+- **GPU:** M1 + M1b + M2 + M3 implemented (`0093-sweet-gpu-probe.patch` full 22-step Adreno 618 driver + `hakios_gpu_*` API; `0094-sweet-iokit-gpu.patch` `HakiosGPU` / `RedwoodGPU` IOKit user client wired to `SweetSurface` and `SweetFramebuffer`).
 - **0093 was stored as UTF-16LE**, so every earlier `git apply` skipped it ("No
   valid patches in input") and the probe never reached a kernel. Re-encoded as
   UTF-8/LF; run 40175007448 applied it and the built kernel now contains the
