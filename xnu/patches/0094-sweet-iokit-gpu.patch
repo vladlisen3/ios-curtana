@@ -1,5 +1,5 @@
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
-index a62416c..7e9d63a 100644
+index a62416c..62c7100 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
 @@ -149,6 +149,24 @@ public:
@@ -27,15 +27,16 @@ index a62416c..7e9d63a 100644
  bool
  AppleCLCD::start(IOService *provider)
  {
-@@ -200,6 +218,7 @@ AppleCLCD::start(IOService *provider)
+@@ -200,6 +218,8 @@ AppleCLCD::start(IOService *provider)
  	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
  	setProperty("external", false);
  	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
++	setProperty("HakiosWaitsForGPU", true);
 +	gSweetFB = this;
  	registerService();
  	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
  	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
-@@ -347,6 +366,7 @@ AppleCLCD::present(const uint8_t *rec)
+@@ -347,6 +367,7 @@ AppleCLCD::present(const uint8_t *rec)
  			OSSafeReleaseNULL(s);
  			continue;
  		}
@@ -43,17 +44,59 @@ index a62416c..7e9d63a 100644
  		uintptr_t src = s->kernelAddress();
  		uint32_t bpe = s->bytesPerElement ? s->bytesPerElement : 4;
  		if (w <= 0 || h <= 0) {
-@@ -568,4 +588,1208 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+@@ -568,4 +589,1234 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  	}
  	return ret;
  }
 +
++/* ==========================================================================
++ * HakiosGPU / RedwoodGPU IOKit Accelerator & UserClient (Adreno 618)
++ * ========================================================================== */
++/*
++ * HakiosGPU: the phone's Adreno for programs to draw with.
++ *
++ * bsd/dev/hakios.adreno.c wakes the GPU and, with boot-arg adreno_keep=1, keeps it on and
++ * starts this service. A program that opens it speaks the interface of Linux's msm DRM driver,
++ * the one Mesa's freedreno knows: every request of that interface is a call of the user client
++ * with the request's number as the selector and the request's structure passed in and back
++ * (userland: tools/mesa/hakios-drm, which stands in for libdrm inside Mesa). What Linux does
++ * with mmap() on the device is the client memory of the type that is the buffer's handle.
++ *
++ * What there is of the interface is what freedreno uses to draw: parameters, buffers (made,
++ * told their address in the GPU's address space, mapped, given back), submission of command
++ * buffers, and waiting for one to be done. A buffer is wired kernel memory entered into the 3D
++ * core's SMMU context; it is zero when made, and write-combined: what the program writes goes to
++ * memory, where the GPU reads it, and not into this processor's cache (as Linux maps them for
++ * freedreno; boot-arg gpu_cached=1 makes them ordinary memory, pushed out of the cache whenever
++ * the GPU is given something to do: see submit()).
++ *
++ * One request is not Linux's: a buffer that is the memory of an IOSurface (surfaceBuffer()), for
++ * drawing into what the display shows and for reading pictures where other programs have drawn
++ * them. Linux hands such memory around as file descriptors; here it has a name already. That
++ * memory is ordinary, cached memory, which everybody else reads and writes as such.
++ *
++ * Not here yet: interrupts (waiting is asking again five times a millisecond), more than one
++ * program's worth of care (every client's buffers are in the one address space; a client that
++ * goes takes its own away), recovery of a GPU that has stopped answering (it is reported, see
++ * hakios_gpu_report(), and stays stopped), fences and buffers as file descriptors.
++ */
++
++#include <IOKit/IOLib.h>
++#include <IOKit/IOLocks.h>
++#include <IOKit/IOKitKeys.h>
 +#include <IOKit/IOPlatformExpert.h>
++#include <IOKit/IOService.h>
++#include <IOKit/IOUserClient.h>
 +#include <IOKit/IOBufferMemoryDescriptor.h>
 +#include <IOKit/IOSubMemoryDescriptor.h>
++#include <kern/clock.h>
 +#include <mach/mach_time.h>
 +#include <mach/vm_param.h>
 +#include <sys/systm.h>
++
++
++
++#define hakios_tl IOLog
 +
 +extern "C" {
 +/* bsd/dev/hakios.adreno.c ("the GPU kept on"; declared in bsd/sys/hakios.input.h, which is not seen from here) */
@@ -256,7 +299,7 @@ index a62416c..7e9d63a 100644
 +	absolutetime_to_nanoseconds(now - began, &ns);
 +	if (ns >= NSEC_PER_MSEC) {
 +		absolutetime_to_nanoseconds(now, &at);
-+		IOLog("tl: f %s %llu at %llu\n", kind, ns / 1000, at / 1000);
++		hakios_tl("tl: f %s %llu at %llu\n", kind, ns / 1000, at / 1000);
 +	}
 +}
 +
@@ -339,7 +382,7 @@ index a62416c..7e9d63a 100644
 +	return true;
 +}
 +
-+void
++extern "C" void
 +HakiosGPUStart(void)
 +{
 +	IOService * provider = IOService::getPlatform();
@@ -347,6 +390,9 @@ index a62416c..7e9d63a 100644
 +	RedwoodGPU * rgpu;
 +	uint32_t cached = 0;
 +
++	if (gGPULock != NULL) {
++		return;
++	}
 +	gGPUCached = PE_parse_boot_argn("gpu_cached", &cached, sizeof(cached)) && cached != 0;
 +	gGPULock = IOLockAlloc();
 +	gpu = OSTypeAlloc(HakiosGPU);
@@ -360,6 +406,7 @@ index a62416c..7e9d63a 100644
 +		IOLog("HakiosGPU: the service did not start\n");
 +	}
 +	gpu->release();
++
 +	rgpu = OSTypeAlloc(RedwoodGPU);
 +	if (rgpu != NULL && rgpu->init() && rgpu->attach(provider)) {
 +		if (!rgpu->start(provider)) {
@@ -371,7 +418,7 @@ index a62416c..7e9d63a 100644
 +}
 +
 +/* The run is ending (hakios.adreno.c): nobody is in the middle of anything when the GPU goes. */
-+void
++extern "C" void
 +HakiosGPUStop(void)
 +{
 +	IOLockLock(gGPULock);
@@ -538,7 +585,7 @@ index a62416c..7e9d63a 100644
 +			b->memory->release();
 +		}
 +		if (b->surface != NULL) {
-+			SweetSurfaceDrop(b->surface);
++			b->surface->release();
 +		}
 +	}
 +	b->memory = NULL;
@@ -569,7 +616,7 @@ index a62416c..7e9d63a 100644
 +			left->memory->release();
 +		}
 +		if (left->surface != NULL) {
-+			SweetSurfaceDrop(left->surface);
++			left->surface->release();
 +		}
 +		*left = fLeft[--fLeftCount];
 +	}
@@ -819,40 +866,40 @@ index a62416c..7e9d63a 100644
 +IOReturn
 +HakiosGPUUserClient::surfaceBuffer(struct hakios_surface * request)
 +{
-+	SweetSurface * s = SweetSurfaceCopy(request->surface);
++	SweetSurface * s = sweet_surface_copy(request->surface);
 +	struct gpu_buffer * b = NULL;
 +	IOMemoryDescriptor * memory;
++	uintptr_t kva;
 +	uint64_t size, began = mach_absolute_time();
 +
 +	if (s == NULL) {
 +		return kIOReturnNotFound;
 +	}
-+	if (s->client != NULL) {
-+		/* (memory of a program's own with a surface made around it: not in whole pages, and seldom in rows the GPU takes) */
-+		SweetSurfaceDrop(s);
++	kva = s->kernelAddress();
++	if (s->memory == NULL || kva == 0) {
++		s->release();
 +		return kIOReturnUnsupported;
 +	}
-+	size = round_page_64(s->info.allocSize);
-+	memory = IOSubMemoryDescriptor::withSubRange(s->memory, PAGE_SIZE, size, kIODirectionInOut);
-+	if (memory == NULL || size == 0 || size > GPU_BUFFER_MAX) {
-+		OSSafeReleaseNULL(memory);
-+		SweetSurfaceDrop(s);
++	size = round_page_64(s->allocSize);
++	memory = s->memory;
++	if (size == 0 || size > GPU_BUFFER_MAX) {
++		s->release();
 +		return kIOReturnNoMemory;
 +	}
++	memory->retain();
 +	request->size = size;
-+	request->offset = s->info.offset;
-+	request->rowBytes = s->info.bytesPerRow;
-+	request->width = s->info.width;
-+	request->height = s->info.height;
-+	request->pixelFormat = s->info.pixelFormat;
-+	request->planes = s->info.planeCount;
++	request->offset = s->offset;
++	request->rowBytes = s->bytesPerRow;
++	request->width = s->width;
++	request->height = s->height;
++	request->pixelFormat = s->pixelFormat;
++	request->planes = s->planeCount;
 +	if (request->handle == kHakiosDescribe) {
 +		request->handle = 0;
 +		memory->release();
-+		SweetSurfaceDrop(s);
++		s->release();
 +		return kIOReturnSuccess;
 +	}
-+
 +	IOLockLock(gGPULock);
 +	for (uint32_t i = 0; i < GPU_BUFFERS; i++) {
 +		if (fBuffers[i].memory != NULL && fBuffers[i].surface == s) {
@@ -863,10 +910,10 @@ index a62416c..7e9d63a 100644
 +	}
 +	if (b != NULL) {
 +		memory->release();
-+		SweetSurfaceDrop(s);
-+	} else if ((b = newBuffer(s->memory, PAGE_SIZE, size, 0, &request->handle)) != NULL) {
++		s->release();
++	} else if ((b = newBuffer(s->memory, 0, size, 0, &request->handle)) != NULL) {
 +		b->memory = memory;
-+		b->kernel = s->kbase + PAGE_SIZE;
++		b->kernel = (uint8_t *)kva;
 +		b->surface = s;
 +		gGPUStat.surfaces++;
 +	}
@@ -874,7 +921,7 @@ index a62416c..7e9d63a 100644
 +	IOLockUnlock(gGPULock);
 +	if (b == NULL) {
 +		memory->release();
-+		SweetSurfaceDrop(s);
++		s->release();
 +		return kIOReturnNoMemory;
 +	}
 +	return kIOReturnSuccess;
@@ -949,7 +996,7 @@ index a62416c..7e9d63a 100644
 +			continue;
 +		}
 +		if (b->surface != NULL) {
-+			uint32_t seed = b->surface->shared()->seed;
++			uint32_t seed = b->surface->state != NULL ? *(uint32_t *)((uint8_t *)b->surface->state->getBytesNoCopy() + 0xc) : 0;
 +
 +			if (seed == b->seed && !b->seen && began - b->pushed < again) {
 +				continue;
@@ -996,7 +1043,7 @@ index a62416c..7e9d63a 100644
 +			all_words += words[i];
 +		}
 +		absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
-+		IOLog("tl: Q %u at %llu: %u buffers, %u big, %u words\n", request->fence, ns / 1000, request->nr_bos, big, all_words);
++		hakios_tl("tl: Q %u at %llu: %u buffers, %u big, %u words\n", request->fence, ns / 1000, request->nr_bos, big, all_words);
 +	}
 +	if (request->flags & MSM_SUBMIT_FENCE_FD_OUT) {
 +		request->fence_fd = -1;
@@ -1230,30 +1277,10 @@ index a62416c..7e9d63a 100644
 +	}
 +	return ret;
 +}
-+#endif /* SWEET */
-+iff --git a/iokit/Kernel/arm/SweetSurface.h b/iokit/Kernel/arm/SweetSurface.h
-+ndex fbcdfac..3b5ba05 100644
-+-- a/iokit/Kernel/arm/SweetSurface.h
-+++ b/iokit/Kernel/arm/SweetSurface.h
-+@ -33,6 +33,7 @@ public:
-+	uint16_t bytesPerElement;
-+	uint8_t  elementWidth, elementHeight;
-+	uint32_t cacheMode, planeCount, parentID;
-+	uint32_t drawn;
-+	struct sweet_surface_plane planes[SWEET_SURFACE_MAX_PLANES];
 +
-+	IOMemoryDescriptor       *memory;       /* pixels (buffer or physical) */
-+@ -61,5 +62,10 @@ SweetSurface *sweet_surface_create_physical(uint64_t phys, uint32_t width,
-+/* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
-+mach_port_name_t sweet_surface_port_in_task(SweetSurface *surface, task_t task);
-+
-+/* Wait for the GPU to finish any pending submission targeting surface. */
-+bool SweetSurfaceDrawn(SweetSurface *surface, uint64_t milliseconds);
-+
-+extern "C" void SweetFramebufferShow(const uint8_t *pixels, uint32_t width, uint32_t height, uint32_t rowBytes);
  #endif /* SWEET */
 diff --git a/iokit/Kernel/arm/SweetSurface.h b/iokit/Kernel/arm/SweetSurface.h
-index fbcdfac..3b5ba05 100644
+index fbcdfac..451d251 100644
 --- a/iokit/Kernel/arm/SweetSurface.h
 +++ b/iokit/Kernel/arm/SweetSurface.h
 @@ -33,6 +33,7 @@ public:
@@ -1268,9 +1295,9 @@ index fbcdfac..3b5ba05 100644
  /* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
  mach_port_name_t sweet_surface_port_in_task(SweetSurface *surface, task_t task);
  
-+/* Wait for the GPU to finish any pending submission targeting surface. */
 +bool SweetSurfaceDrawn(SweetSurface *surface, uint64_t milliseconds);
-+
++extern "C" void HakiosGPUStart(void);
++extern "C" void HakiosGPUStop(void);
 +extern "C" void SweetFramebufferShow(const uint8_t *pixels, uint32_t width, uint32_t height, uint32_t rowBytes);
 +
  #endif /* SWEET */
