@@ -1,5 +1,16 @@
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
+## Status 2026-10-25 (docs sync)
+
+- **Touch:** two paths in one tree. `sweet` = Goodix GT9896 over I²C SE7
+  (0060–0063); `curtana` = FocalTech FTS over bit-banged SPI (0087–0091).
+  README and `docs/GPU.md` now say both instead of only Goodix.
+- **GPU:** M1 probe only (0093, `sweetgpu=N`, default off). M1b (CX/clocks) and
+  M2 (GMU firmware + HFI) are not implemented. Last green CI: run 39979678916.
+- **Patch 0093 was stored as UTF-16LE**, so `git apply` could not read it and
+  the probe never reached the kernel. It is UTF-8/LF now; the next CI run must
+  show it in the applied-patch list.
+
 ## >>> UPDATE 2026-10-21 (later): touch is FTS over SPI, not I2C SE7 <<<
 
 **Root cause of "touch does not work": the driver was probing the wrong bus

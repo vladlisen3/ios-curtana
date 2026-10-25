@@ -1,8 +1,17 @@
 # GPU (Adreno 618) — port notes
 
-Status: **not started**. The system draws with the software renderer
-(`backboardd` + CoreAnimation on the CPU), so the UI is slow, `PosterBoard`
+Status: **M1 probe merged, not yet compiled (patch `0093`).** The probe maps
+KGSL, GPUCC, GMU, SMMU, QFPROM and GCC, then reads the speed/gaming fuses and
+the GPUCC/GCC clock state; it is off unless the kernel is booted with
+`sweetgpu=N`. Nothing powers the GPU up, loads firmware or exposes an
+accelerator yet, so the system still draws with the software renderer
+(`backboardd` + CoreAnimation on the CPU): the UI is slow, `PosterBoard`
 (SIGTRAP, needs Metal) crashes, and widgets stay empty.
+
+The patch was stored as UTF-16LE, so run `39979678916` skipped it ("No valid
+patches in input") and the kernel built without the probe. It is UTF-8 now; the
+next CI run is the first one that compiles it. Probe output is `SWEET GPU: ...`
+lines in the persistent kernel log.
 
 The reference is `oosexgang/hackios-xnu-kernel`:
 `xnu/files/bsd/dev/redwood_adreno.c` (Adreno 642L / a660, 22 documented
@@ -64,13 +73,16 @@ match it, which is what makes the port realistic.
 
 ## Port plan
 
-M1 — probe (`sweet_gpu.c`, boot-arg `sweetgpu=N`, default off): read the
-QFPROM speed bin, the GCC GPU clock state, the GPUCC block. Answers "may this
-kernel touch the GPU at all" (on redwood that was the first unknown: a write
-the hypervisor dislikes kills the run, sometimes 17 s later).
+M1 — **done** (patch `0093`): probe in `sweet_touch.c` behind `sweetgpu=N`
+(default off) maps KGSL/GPUCC/GMU/SMMU/QFPROM/GCC and reads the QFPROM speed
+and gaming bins, the GPUCC block and the GCC GPU clock state. Answers "may this
+kernel touch the GPU at all" (on redwood that was the first unknown: a write the
+hypervisor dislikes kills the run, sometimes 17 s later). Steps 1–4 are reads
+only; there is no write path yet.
 
-M1b — CX on (`cx_hw_ctrl` bit 31), clocks on + measured with the GCC counter,
-read GMU and SMMU ID registers.
+M1b — **next**: CX on (`cx_hw_ctrl` bit 31), clocks on + measured with the GCC
+counter, read GMU and SMMU ID registers. Add it as `sweetgpu=5` and keep the
+default off until a full boot survives it.
 
 M2 — GMU: `a618_gmu.bin` into GMU memory, HFI queues, ask for GX power,
 `a630_sqe.fw`, first packet to the 3D core.
