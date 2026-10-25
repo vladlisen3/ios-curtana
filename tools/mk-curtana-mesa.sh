@@ -22,6 +22,11 @@ B="${BUILD_DIR:-$REPO_ROOT/build/mesa}"
 SDK="${IOS_SDK:-${THEOS:-$HOME/theos}/sdks/iPhoneOS16.5.sdk}"
 CC_BIN="${XNU_CLANG:-clang}"
 
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+	echo "Usage: $0 [--install <MOUNTED_IOS_ROOT>]"
+	exit 0
+fi
+
 INSTALL_ROOT=""
 if [ "${1:-}" = "--install" ] && [ -n "${2:-}" ]; then
 	INSTALL_ROOT="$2"

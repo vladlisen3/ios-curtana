@@ -14,9 +14,9 @@
 
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 	echo "Usage: sudo $0 <MOUNTED_IOS_ROOT> [VENDOR_FIRMWARE_DIR] [--fetch-open-fw]" >&2
-	exit 1
+	[ $# -lt 1 ] && exit 1 || exit 0
 fi
 
 ROOT="$1"
