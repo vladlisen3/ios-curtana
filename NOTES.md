@@ -1009,3 +1009,14 @@ FIFOs" -> SE7 FIFO depth differs, log will show the measured fw/probe.
   "tcm probe 0x20 err=" / "tcm mode=... part=..." / "selected Synaptics
   TCM". No network gadget = nothing to see; pull the ring via OrangeFox
   + tools/sweet-log-pull.sh and grep "SWEET TOUCH: tcm".
+
+
+## GPU Driver (HakiosGPU / RedwoodGPU / Adreno 618) & Mesa/AIR Userspace Milestone
+- **Kernel & Driver Compilation**: Patch 0094 (`xnu/patches/0094-sweet-iokit-gpu.patch`) cleaned and updated with strict XNU 7195 / macOS 11/13 IOKit ABI compliance.
+- **CI Build**: GitHub Actions run 40228912464 completed with **SUCCESS**!
+  - `kernel.development.sweet` (arm64, 17,434,304 bytes) successfully built and archived in artifact `xnu-kernel` (57.45 MB).
+  - All symbols resolved, full GMU/ringbuffer sequencing compiled cleanly.
+- **Staging & Userspace**:
+  - `tools/stage-curtana-gpu-fw.sh`: firmware staging tool for Adreno 618 GMU and ZAP shaders into `/firm` and `/fw`.
+  - `tools/mk-curtana-mesa.sh`: Darwin arm64 Mesa Freedreno + AIR-to-NIR + EAGL pipeline.
+  - Validation: `tools/validate-repo.py` passes 100% (94 patches contiguous, all tools valid).
