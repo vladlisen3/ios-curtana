@@ -6,13 +6,12 @@ def main():
     mesa_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
     print(f'[*] Applying iOS / Darwin patches to Mesa source in {mesa_dir}')
 
-    # 1. freedreno_common.h: fix underlying type
+    # 1. freedreno_common.h: fix underlying type (do NOT add <type_traits> outside C++!)
     fd_common = os.path.join(mesa_dir, 'src', 'freedreno', 'common', 'freedreno_common.h')
     if os.path.exists(fd_common):
         with open(fd_common, 'r', encoding='utf-8', errors='ignore') as f:
             txt = f.read()
         if 'using underlying = typename std::underlying_type_t<E>;' in txt:
-            txt = '#include <type_traits>\n' + txt
             txt = txt.replace(
                 'using underlying = typename std::underlying_type_t<E>;',
                 'using underlying = __underlying_type(E);'
