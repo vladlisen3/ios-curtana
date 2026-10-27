@@ -23,22 +23,6 @@ SDK="${IOS_SDK:-${THEOS:-$HOME/theos}/sdks/iPhoneOS16.5.sdk}"
 CC_BIN="${XNU_CLANG:-clang}"
 CPP_BIN="${XNU_CPP:-${CC_BIN}++}"
 
-sha_calc() {
-	if command -v sha256sum >/dev/null 2>&1; then
-		sha256sum "$@"
-	else
-		shasum -a 256 "$@"
-	fi
-}
-
-sha_check() {
-	if command -v sha256sum >/dev/null 2>&1; then
-		sha256sum -c "$@"
-	else
-		shasum -a 256 -c "$@"
-	fi
-}
-
 AR_BIN="${AR_BIN:-$(command -v llvm-ar 2>/dev/null || command -v ar)}"
 RANLIB_BIN="${RANLIB_BIN:-$(command -v llvm-ranlib 2>/dev/null || command -v ranlib)}"
 STRIP_BIN="${STRIP_BIN:-$(command -v llvm-strip 2>/dev/null || command -v strip)}"
@@ -56,10 +40,10 @@ fi
 mkdir -p "$B/out"
 cd "$B"
 
-PATCHES=$(cat "$REPO_ROOT"/tools/mesa/*.patch | sha_calc | cut -d' ' -f1)
+PATCHES=$(cat "$REPO_ROOT"/tools/mesa/*.patch | shasum -a 256 | cut -d' ' -f1)
 if [ ! -d "mesa-$VERSION" ] || [ "$(cat "mesa-$VERSION/.curtana-patches" 2>/dev/null || true)" != "$PATCHES" ]; then
 	[ -f "mesa-$VERSION.tar.xz" ] || curl -sL --fail -o "mesa-$VERSION.tar.xz" "https://archive.mesa3d.org/mesa-$VERSION.tar.xz"
-	echo "$SHA256  mesa-$VERSION.tar.xz" | sha_check
+	echo "$SHA256  mesa-$VERSION.tar.xz" | shasum -a 256 -c
 	rm -rf "mesa-$VERSION" build-*
 	tar xJf "mesa-$VERSION.tar.xz"
 	for p in "$REPO_ROOT"/tools/mesa/*.patch; do
@@ -97,9 +81,9 @@ fi
 if [ "$IS_DARWIN" = "1" ]; then
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-DHAVE_STRUCT_TIMESPEC']
-cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit', '-DHAVE_STRUCT_TIMESPEC']
-objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-DHAVE_STRUCT_TIMESPEC']
+c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
 ar = '$AR_BIN'
 ranlib = '$RANLIB_BIN'
 strip = '$STRIP_BIN'
@@ -118,9 +102,9 @@ INI
 else
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-DHAVE_STRUCT_TIMESPEC']
-cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit', '-DHAVE_STRUCT_TIMESPEC']
-objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-DHAVE_STRUCT_TIMESPEC']
+c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
 ar = '$AR_BIN'
 ranlib = '$RANLIB_BIN'
 strip = '$STRIP_BIN'
@@ -160,9 +144,9 @@ EAGL_DIR="$REPO_ROOT/tools/mesa/eagl"
 python3 "$EAGL_DIR/mkeagl.py" "$EAGL_DIR/eagl_slots.txt" out/gl.xml out/exported-gl.txt "$EAGL_DIR/eagl.c" > out/eagl_gen.h
 
 if [ "$IS_DARWIN" = "1" ]; then
-	DYN="$CC_BIN -arch arm64 -isysroot $SDK -O2"
+	DYN="$CC_BIN -arch arm64 -isysroot $SDK -O2 -D_DARWIN_C_SOURCE=1"
 else
-	DYN="$CC_BIN -target arm64-apple-ios16.5 -isysroot $SDK -fuse-ld=lld -O2"
+	DYN="$CC_BIN -target arm64-apple-ios16.5 -isysroot $SDK -fuse-ld=lld -O2 -D_DARWIN_C_SOURCE=1"
 fi
 
 $DYN -dynamiclib -install_name /redwood/lib/libhakios.gl.dylib -Iout -I"$EAGL_DIR" 	-framework CoreFoundation -framework IOKit -framework IOSurface -lobjc 	out/libOSMesa.8.dylib -o out/libhakios.gl.dylib "$EAGL_DIR/eagl.c" "$EAGL_DIR/gl_osmesa.c"
