@@ -53,38 +53,7 @@ if [ ! -d "mesa-$VERSION" ] || [ "$(cat "mesa-$VERSION/.curtana-patches" 2>/dev/
 fi
 
 # Apply iOS SDK compatibility fixes to Mesa source
-python3 -c "
-import os
-
-def patch_file(path, old, new):
-    if os.path.exists(path):
-        c = open(path).read()
-        if old in c:
-            open(path, 'w').write(c.replace(old, new))
-
-# 1. Fix underlying type in freedreno_common.h
-patch_file('mesa-$VERSION/src/freedreno/common/freedreno_common.h',
-           'using underlying = typename std::underlying_type_t<E>;',
-           '#include <type_traits>
-   using underlying = __underlying_type(E);')
-
-# 2. Fix dlfcn.h inclusion in disk_cache.h
-patch_file('mesa-$VERSION/src/util/disk_cache.h',
-           '#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
-#include <stdio.h>
-#include "util/build_id.h"
-#endif',
-           '#include <dlfcn.h>
-#include <stdio.h>
-#include "util/build_id.h"')
-
-# 3. Fix timespec in time.h
-patch_file('mesa-$VERSION/src/c11/time.h',
-           'struct timespec {',
-           '#if !defined(__APPLE__) && !defined(HAVE_STRUCT_TIMESPEC)
-struct timespec {')
-"
+python3 "$REPO_ROOT/tools/patch-mesa.py" "mesa-$VERSION"
 
 rm -rf "mesa-$VERSION/src/hakios-drm" "mesa-$VERSION/src/compiler/air"
 cp -r "$REPO_ROOT/tools/mesa/hakios-drm" "mesa-$VERSION/src/hakios-drm"
