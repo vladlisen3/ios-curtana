@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths:
       - 'tools/mesa/**'
-      - 'tools/mk-curtana-mesa.sh'
+      - 'tools/**'
       - '.github/workflows/mesa.yml'
 
 concurrency:
