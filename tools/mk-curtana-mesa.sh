@@ -52,15 +52,34 @@ if [ ! -d "mesa-$VERSION" ] || [ "$(cat "mesa-$VERSION/.curtana-patches" 2>/dev/
 	echo "$PATCHES" > "mesa-$VERSION/.curtana-patches"
 fi
 
-# Fix C11 timespec redefinition on Darwin / iOS SDK
+# Apply iOS SDK compatibility fixes to Mesa source
 python3 -c "
 import os
-p = 'mesa-$VERSION/src/c11/time.h'
-if os.path.exists(p):
-    c = open(p).read()
-    if 'struct timespec {' in c and '#if !defined(__APPLE__)' not in c:
-        open(p, 'w').write(c.replace('struct timespec {', '#if !defined(__APPLE__) && !defined(HAVE_STRUCT_TIMESPEC)
-struct timespec {'))
+def patch_file(path, old, new):
+    if os.path.exists(path):
+        c = open(path).read()
+        if old in c and new not in c:
+            open(path, 'w').write(c.replace(old, new))
+
+# 1. Fix type_traits in freedreno_common.h
+patch_file('mesa-$VERSION/src/freedreno/common/freedreno_common.h',
+           '#include <tuple>',
+           '#include <tuple>
+#include <type_traits>')
+
+# 2. Fix dlfcn.h inclusion in disk_cache.h
+patch_file('mesa-$VERSION/src/util/disk_cache.h',
+           '#ifdef HAVE_DLFCN_H
+#include <dlfcn.h>',
+           '#include <dlfcn.h>
+#ifdef HAVE_DLFCN_H
+#include <dlfcn.h>')
+
+# 3. Fix timespec in time.h
+patch_file('mesa-$VERSION/src/c11/time.h',
+           'struct timespec {',
+           '#if !defined(__APPLE__) && !defined(HAVE_STRUCT_TIMESPEC)
+struct timespec {')
 " 2>/dev/null || true
 
 rm -rf "mesa-$VERSION/src/hakios-drm" "mesa-$VERSION/src/compiler/air"
