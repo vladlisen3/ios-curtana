@@ -72,6 +72,12 @@ if [ ! -x venv/bin/python3 ]; then
 fi
 export PATH="$B/venv/bin:$PATH"
 
+IS_DARWIN=0
+if [ "$(uname -s)" = "Darwin" ]; then
+	IS_DARWIN=1
+fi
+
+if [ "$IS_DARWIN" = "1" ]; then
 cat > cross.ini <<INI
 [binaries]
 c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
@@ -92,6 +98,28 @@ endian = 'little'
 [properties]
 needs_exe_wrapper = true
 INI
+else
+cat > cross.ini <<INI
+[binaries]
+c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld']
+cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit']
+objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld']
+ar = '$AR_BIN'
+ranlib = '$RANLIB_BIN'
+strip = '$STRIP_BIN'
+pkg-config = 'false'
+
+[host_machine]
+system = 'darwin'
+subsystem = 'ios'
+cpu_family = 'aarch64'
+cpu = 'arm64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+INI
+fi
 
 DRIVERS="${DRIVERS:-softpipe,freedreno}"
 BUILD="build-${DRIVERS//,/-}"
@@ -104,7 +132,9 @@ ninja -C "$BUILD" src/gallium/drivers/freedreno/air_run
 cp "$BUILD/src/gallium/drivers/freedreno/air_run" out/air_run
 
 "$STRIP_BIN" -x -o out/libOSMesa.8.dylib "$BUILD/src/gallium/targets/osmesa/libOSMesa.8.dylib"
-install_name_tool -id /redwood/lib/libOSMesa.8.dylib out/libOSMesa.8.dylib
+if [ "$IS_DARWIN" = "1" ]; then
+	install_name_tool -id /redwood/lib/libOSMesa.8.dylib out/libOSMesa.8.dylib
+fi
 nm -gU out/libOSMesa.8.dylib | awk '$3 ~ /^_gl/ { print substr($3, 2) }' > out/exported-gl.txt
 cp "mesa-$VERSION/src/mapi/glapi/registry/gl.xml" out/gl.xml
 
@@ -112,7 +142,12 @@ cp "mesa-$VERSION/src/mapi/glapi/registry/gl.xml" out/gl.xml
 EAGL_DIR="$REPO_ROOT/tools/mesa/eagl"
 python3 "$EAGL_DIR/mkeagl.py" "$EAGL_DIR/eagl_slots.txt" out/gl.xml out/exported-gl.txt "$EAGL_DIR/eagl.c" > out/eagl_gen.h
 
-DYN="$CC_BIN -arch arm64 -isysroot $SDK -O2"
+if [ "$IS_DARWIN" = "1" ]; then
+	DYN="$CC_BIN -arch arm64 -isysroot $SDK -O2"
+else
+	DYN="$CC_BIN -target arm64-apple-ios16.5 -isysroot $SDK -fuse-ld=lld -O2"
+fi
+
 $DYN -dynamiclib -install_name /redwood/lib/libhakios.gl.dylib -Iout -I"$EAGL_DIR" 	-framework CoreFoundation -framework IOKit -framework IOSurface -lobjc 	out/libOSMesa.8.dylib -o out/libhakios.gl.dylib "$EAGL_DIR/eagl.c" "$EAGL_DIR/gl_osmesa.c"
 $DYN -I"$EAGL_DIR" -framework CoreFoundation -framework IOKit out/libOSMesa.8.dylib -o out/gl_test "$EAGL_DIR/gl_test.c"
 $DYN -fobjc-arc -Wno-deprecated-declarations -framework Foundation -framework CoreGraphics 	-framework CoreImage -framework IOKit -framework Metal -framework OpenGLES 	-lMobileGestalt -o out/metal_test "$EAGL_DIR/metal_test.m"

@@ -14,21 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: macos-14
-    timeout-minutes: 60
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          brew install meson ninja bison flex llvm coreutils
-          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
-          bison --version
-          flex --version
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build bison flex clang lld llvm
 
       - name: Setup iOS SDK
         run: |
@@ -41,16 +37,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Python packages
         run: |
           pip install mako pyyaml packaging
-
-      - name: Select Xcode
-        run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode_15.app || true
-          xcodebuild -version
 
       - name: Build Mesa Freedreno & Metal AIR
         run: |
@@ -61,11 +51,58 @@ jobs:
         run: |
           ls -la build/mesa/out/
           file build/mesa/out/*
-          otool -L build/mesa/out/*.dylib || true
 
       - name: Upload Mesa & Metal artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: curtana-mesa-metal
+          name: curtana-mesa-metal-linux
+          path: build/mesa/out/
+          if-no-files-found: error
+
+  build-mac:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install meson ninja bison flex llvm coreutils
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Setup iOS SDK
+        run: |
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git theos-sdks
+          cd theos-sdks
+          git sparse-checkout set iPhoneOS16.5.sdk
+          echo "IOS_SDK=$PWD/iPhoneOS16.5.sdk" >> "$GITHUB_ENV"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python packages
+        run: |
+          pip install mako pyyaml packaging
+
+      - name: Build Mesa Freedreno & Metal AIR
+        run: |
+          chmod +x tools/mk-curtana-mesa.sh
+          bash tools/mk-curtana-mesa.sh
+
+      - name: Verify build outputs
+        run: |
+          ls -la build/mesa/out/
+          file build/mesa/out/*
+
+      - name: Upload Mesa & Metal artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: curtana-mesa-metal-mac
           path: build/mesa/out/
           if-no-files-found: error
