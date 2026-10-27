@@ -55,32 +55,36 @@ fi
 # Apply iOS SDK compatibility fixes to Mesa source
 python3 -c "
 import os
+
 def patch_file(path, old, new):
     if os.path.exists(path):
         c = open(path).read()
-        if old in c and new not in c:
+        if old in c:
             open(path, 'w').write(c.replace(old, new))
 
-# 1. Fix type_traits in freedreno_common.h
+# 1. Fix underlying type in freedreno_common.h
 patch_file('mesa-$VERSION/src/freedreno/common/freedreno_common.h',
-           '#include <tuple>',
-           '#include <tuple>
-#include <type_traits>')
+           'using underlying = typename std::underlying_type_t<E>;',
+           '#include <type_traits>
+   using underlying = __underlying_type(E);')
 
 # 2. Fix dlfcn.h inclusion in disk_cache.h
 patch_file('mesa-$VERSION/src/util/disk_cache.h',
            '#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>',
+#include <dlfcn.h>
+#include <stdio.h>
+#include "util/build_id.h"
+#endif',
            '#include <dlfcn.h>
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>')
+#include <stdio.h>
+#include "util/build_id.h"')
 
 # 3. Fix timespec in time.h
 patch_file('mesa-$VERSION/src/c11/time.h',
            'struct timespec {',
            '#if !defined(__APPLE__) && !defined(HAVE_STRUCT_TIMESPEC)
 struct timespec {')
-" 2>/dev/null || true
+"
 
 rm -rf "mesa-$VERSION/src/hakios-drm" "mesa-$VERSION/src/compiler/air"
 cp -r "$REPO_ROOT/tools/mesa/hakios-drm" "mesa-$VERSION/src/hakios-drm"
@@ -100,13 +104,19 @@ fi
 if [ "$IS_DARWIN" = "1" ]; then
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
-cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
-objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
+cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit']
+objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
 ar = '$AR_BIN'
 ranlib = '$RANLIB_BIN'
 strip = '$STRIP_BIN'
 pkg-config = 'false'
+
+[built-in options]
+c_std = 'c11'
+cpp_std = 'c++17'
+c_args = ['-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+cpp_args = ['-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
 
 [host_machine]
 system = 'darwin'
@@ -121,13 +131,19 @@ INI
 else
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
-cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
-objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld']
+cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit']
+objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld']
 ar = '$AR_BIN'
 ranlib = '$RANLIB_BIN'
 strip = '$STRIP_BIN'
 pkg-config = 'false'
+
+[built-in options]
+c_std = 'c11'
+cpp_std = 'c++17'
+c_args = ['-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
+cpp_args = ['-D_DARWIN_C_SOURCE=1', '-DHAVE_STRUCT_TIMESPEC=1']
 
 [host_machine]
 system = 'darwin'
