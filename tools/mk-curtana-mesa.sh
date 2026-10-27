@@ -23,15 +23,21 @@ SDK="${IOS_SDK:-${THEOS:-$HOME/theos}/sdks/iPhoneOS16.5.sdk}"
 CC_BIN="${XNU_CLANG:-clang}"
 CPP_BIN="${XNU_CPP:-${CC_BIN}++}"
 
-if ! command -v sha256sum >/dev/null 2>&1; then
-	sha256sum() {
-		if [ "${1:-}" = "-c" ]; then
-			shasum -a 256 -c "${@:2}"
-		else
-			shasum -a 256 "$@"
-		fi
-	}
-fi
+sha_calc() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$@"
+	else
+		shasum -a 256 "$@"
+	fi
+}
+
+sha_check() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum -c "$@"
+	else
+		shasum -a 256 -c "$@"
+	fi
+}
 
 AR_BIN="${AR_BIN:-$(command -v llvm-ar 2>/dev/null || command -v ar)}"
 RANLIB_BIN="${RANLIB_BIN:-$(command -v llvm-ranlib 2>/dev/null || command -v ranlib)}"
@@ -50,10 +56,10 @@ fi
 mkdir -p "$B/out"
 cd "$B"
 
-PATCHES=$(cat "$REPO_ROOT"/tools/mesa/*.patch | sha256sum | cut -d' ' -f1)
+PATCHES=$(cat "$REPO_ROOT"/tools/mesa/*.patch | sha_calc | cut -d' ' -f1)
 if [ ! -d "mesa-$VERSION" ] || [ "$(cat "mesa-$VERSION/.curtana-patches" 2>/dev/null || true)" != "$PATCHES" ]; then
 	[ -f "mesa-$VERSION.tar.xz" ] || curl -sL --fail -o "mesa-$VERSION.tar.xz" "https://archive.mesa3d.org/mesa-$VERSION.tar.xz"
-	echo "$SHA256  mesa-$VERSION.tar.xz" | sha256sum -c --quiet
+	echo "$SHA256  mesa-$VERSION.tar.xz" | sha_check
 	rm -rf "mesa-$VERSION" build-*
 	tar xJf "mesa-$VERSION.tar.xz"
 	for p in "$REPO_ROOT"/tools/mesa/*.patch; do
@@ -61,6 +67,17 @@ if [ ! -d "mesa-$VERSION" ] || [ "$(cat "mesa-$VERSION/.curtana-patches" 2>/dev/
 	done
 	echo "$PATCHES" > "mesa-$VERSION/.curtana-patches"
 fi
+
+# Fix C11 timespec redefinition on Darwin / iOS SDK
+python3 -c "
+import os
+p = 'mesa-$VERSION/src/c11/time.h'
+if os.path.exists(p):
+    c = open(p).read()
+    if 'struct timespec {' in c and '#if !defined(__APPLE__)' not in c:
+        open(p, 'w').write(c.replace('struct timespec {', '#if !defined(__APPLE__) && !defined(HAVE_STRUCT_TIMESPEC)
+struct timespec {'))
+" 2>/dev/null || true
 
 rm -rf "mesa-$VERSION/src/hakios-drm" "mesa-$VERSION/src/compiler/air"
 cp -r "$REPO_ROOT/tools/mesa/hakios-drm" "mesa-$VERSION/src/hakios-drm"
@@ -80,9 +97,9 @@ fi
 if [ "$IS_DARWIN" = "1" ]; then
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
-cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit']
-objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
+c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-DHAVE_STRUCT_TIMESPEC']
+cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit', '-DHAVE_STRUCT_TIMESPEC']
+objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-DHAVE_STRUCT_TIMESPEC']
 ar = '$AR_BIN'
 ranlib = '$RANLIB_BIN'
 strip = '$STRIP_BIN'
@@ -101,9 +118,9 @@ INI
 else
 cat > cross.ini <<INI
 [binaries]
-c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld']
-cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit']
-objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld']
+c = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-DHAVE_STRUCT_TIMESPEC']
+cpp = ['$CPP_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-fuse-cxa-atexit', '-DHAVE_STRUCT_TIMESPEC']
+objc = ['$CC_BIN', '-target', 'arm64-apple-ios16.5', '-isysroot', '$SDK', '-fuse-ld=lld', '-DHAVE_STRUCT_TIMESPEC']
 ar = '$AR_BIN'
 ranlib = '$RANLIB_BIN'
 strip = '$STRIP_BIN'
