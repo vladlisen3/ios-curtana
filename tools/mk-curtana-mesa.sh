@@ -21,6 +21,21 @@ REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 B="${BUILD_DIR:-$REPO_ROOT/build/mesa}"
 SDK="${IOS_SDK:-${THEOS:-$HOME/theos}/sdks/iPhoneOS16.5.sdk}"
 CC_BIN="${XNU_CLANG:-clang}"
+CPP_BIN="${XNU_CPP:-${CC_BIN}++}"
+
+if ! command -v sha256sum >/dev/null 2>&1; then
+	sha256sum() {
+		if [ "${1:-}" = "-c" ]; then
+			shasum -a 256 -c "${@:2}"
+		else
+			shasum -a 256 "$@"
+		fi
+	}
+fi
+
+AR_BIN="${AR_BIN:-$(command -v llvm-ar 2>/dev/null || command -v ar)}"
+RANLIB_BIN="${RANLIB_BIN:-$(command -v llvm-ranlib 2>/dev/null || command -v ranlib)}"
+STRIP_BIN="${STRIP_BIN:-$(command -v llvm-strip 2>/dev/null || command -v strip)}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
 	echo "Usage: $0 [--install <MOUNTED_IOS_ROOT>]"
@@ -60,11 +75,11 @@ export PATH="$B/venv/bin:$PATH"
 cat > cross.ini <<INI
 [binaries]
 c = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
-cpp = ['$CC_BIN++', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit']
+cpp = ['$CPP_BIN', '-arch', 'arm64', '-isysroot', '$SDK', '-fuse-cxa-atexit']
 objc = ['$CC_BIN', '-arch', 'arm64', '-isysroot', '$SDK']
-ar = 'llvm-ar'
-ranlib = 'llvm-ranlib'
-strip = 'llvm-strip'
+ar = '$AR_BIN'
+ranlib = '$RANLIB_BIN'
+strip = '$STRIP_BIN'
 pkg-config = 'false'
 
 [host_machine]
@@ -88,7 +103,7 @@ ninja -C "$BUILD"
 ninja -C "$BUILD" src/gallium/drivers/freedreno/air_run
 cp "$BUILD/src/gallium/drivers/freedreno/air_run" out/air_run
 
-llvm-strip -x -o out/libOSMesa.8.dylib "$BUILD/src/gallium/targets/osmesa/libOSMesa.8.dylib"
+"$STRIP_BIN" -x -o out/libOSMesa.8.dylib "$BUILD/src/gallium/targets/osmesa/libOSMesa.8.dylib"
 install_name_tool -id /redwood/lib/libOSMesa.8.dylib out/libOSMesa.8.dylib
 nm -gU out/libOSMesa.8.dylib | awk '$3 ~ /^_gl/ { print substr($3, 2) }' > out/exported-gl.txt
 cp "mesa-$VERSION/src/mapi/glapi/registry/gl.xml" out/gl.xml
