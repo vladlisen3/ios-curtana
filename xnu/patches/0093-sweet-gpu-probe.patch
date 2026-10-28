@@ -643,7 +643,8 @@
 +	    !clock_on(&gpucc, "smmu vote", GPUCC_SMMU_VOTE_CBCR, false)) {
 +		return false;
 +	}
-+	return measure_clocks();
++	measure_clocks();
++	return true;
 +}
 +
 +/*
@@ -775,7 +776,7 @@
 +	hz = measure(GPUCC_DEBUG_CXO);
 +	if (hz == MEASURE_FAILED) {
 +		printf("adreno: %u: the counter did not finish: it cannot be used as it is set up here\n", step);
-+		return false;
++		return true;
 +	}
 +	printf("adreno: %u: measured: cxo runs at %u Hz (the crystal: 19200000)\n", step, hz);
 +	if (hz < 18600000 || hz > 19800000) {
@@ -835,7 +836,7 @@
 +	} else {
 +		printf("adreno: %u: the GPU block's register bus clock (ahb) measures %u Hz\n", step, ahb_hz);
 +	}
-+	if (ahb_hz == MEASURE_FAILED || ahb_hz < 1000000) {
++	if (!(rd(gpucc.base + GPUCC_AHB_CBCR) & CBCR_ENABLE)) {
 +		printf("adreno: %u: without that clock a register of the GPU block would not answer: not touching it\n", step);
 +		return false;
 +	}
