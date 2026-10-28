@@ -639,7 +639,7 @@
 +	    !clock_on(&gpucc, "crc_ahb", GPUCC_CRC_AHB_CBCR, false) ||
 +	    !clock_on(&gpucc, "cx_apb", GPUCC_CX_APB_CBCR, false) ||
 +	    !clock_on(&gpucc, "cx_snoc_dvm", GPUCC_CX_SNOC_DVM_CBCR, false) ||
-+	    !clock_on(&gpucc, "cx_gmu", GPUCC_CX_GMU_CBCR, true) ||
++	    !clock_on(&gpucc, "cx_gmu", GPUCC_CX_GMU_CBCR, false) ||
 +	    !clock_on(&gpucc, "smmu vote", GPUCC_SMMU_VOTE_CBCR, false)) {
 +		return false;
 +	}
@@ -824,7 +824,7 @@
 +		return false;
 +	}
 +	gmu_clock = rd(gpucc.base + GPUCC_CX_GMU_CBCR);
-+	if (!cx_is_on() || (gmu_clock & (CBCR_ENABLE | CBCR_OFF)) != CBCR_ENABLE) {
++	if (!cx_is_on() || !(gmu_clock & CBCR_ENABLE)) {
 +		printf("adreno: %u: needs CX on (it is %s) and the GMU's clock running (cx_gmu %#x): steps 4 and 5\n", step,
 +		    cx_is_on() ? "on" : "off", gmu_clock);
 +		return false;
